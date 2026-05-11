@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import yaml
+import copy
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import HTMLResponse
@@ -12,6 +13,7 @@ from .policy_engine import PolicyEngine
 from .validators import validate_input, validate_output
 from .llm_gateway import generate_llm_response
 from .audit import audit_logger
+from .policy_change_log import policy_change_logger
 
 load_dotenv()
 
@@ -2547,6 +2549,14 @@ async def governance_hub():
             </div>
         </a>
 
+
+        <a class="nav-card" href="/policy-change-log">
+            <div class="nav-title">Policy Change Log</div>
+            <div class="nav-desc">
+                Review policy updates, changed fields, old/new values, and backup references.
+            </div>
+        </a>
+
         <a class="nav-card" href="/scenario-dashboard">
             <div class="nav-title">Scenario Testing</div>
             <div class="nav-desc">
@@ -3003,6 +3013,8 @@ async def update_policy_settings(payload: dict = Body(...)):
     with POLICY_PATH.open("r", encoding="utf-8") as f:
         policy_data = yaml.safe_load(f)
 
+    old_policy_data = copy.deepcopy(policy_data)
+
     backup_dir = POLICY_PATH.parent / "backups"
     backup_dir.mkdir(exist_ok=True)
 
@@ -3057,9 +3069,17 @@ async def update_policy_settings(payload: dict = Body(...)):
     with POLICY_PATH.open("w", encoding="utf-8") as f:
         yaml.safe_dump(policy_data, f, sort_keys=False)
 
+    policy_change = policy_change_logger.record_change(
+        old_policy=old_policy_data,
+        new_policy=policy_data,
+        backup_path=str(backup_path),
+        changed_by="local_admin",
+    )
+
     return {
         "status": "saved",
         "backup_created": str(backup_path),
+        "policy_change": policy_change,
         "policy": policy_data
     }
 
@@ -3334,6 +3354,230 @@ async function savePolicy() {
 }
 
 loadPolicy();
+</script>
+</body>
+</html>
+    """
+
+
+@app.get("/policy-change-log-data")
+async def policy_change_log_data():
+    changes = policy_change_logger.list_changes()
+    return {
+        "count": len(changes),
+        "changes": changes
+    }
+
+
+@app.get("/policy-change-log", response_class=HTMLResponse)
+async def policy_change_log():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Policy Change Log - LLM Guardrail Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 36px;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 36px;
+        }
+        .subtitle {
+            color: #6e6e73;
+            font-size: 16px;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+        .button-row {
+            margin: 18px 0 26px 0;
+        }
+        a.button, button {
+            display: inline-block;
+            text-decoration: none;
+            background: #0071e3;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin: 6px 8px 6px 0;
+            border: none;
+            cursor: pointer;
+        }
+        a.secondary, button.secondary {
+            background: #e8e8ed;
+            color: #1d1d1f;
+        }
+        .card {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+            margin-bottom: 22px;
+        }
+        .metric-label {
+            color: #6e6e73;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .metric-value {
+            font-size: 34px;
+            font-weight: 700;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 18px;
+            overflow: hidden;
+        }
+        th {
+            text-align: left;
+            background: #f0f0f3;
+            padding: 14px;
+            font-size: 13px;
+            color: #555;
+        }
+        td {
+            padding: 14px;
+            border-top: 1px solid #ececf0;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        .pill {
+            display: inline-block;
+            background: #e8e8ed;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-weight: 600;
+            font-size: 12px;
+            margin: 3px 3px 3px 0;
+        }
+        .pill.changed {
+            background: #fff4df;
+            color: #8a5a00;
+        }
+        .small {
+            color: #6e6e73;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        pre {
+            background: #1d1d1f;
+            color: #f5f5f7;
+            padding: 14px;
+            border-radius: 14px;
+            overflow-x: auto;
+            font-size: 12px;
+            max-height: 260px;
+        }
+        @media (max-width: 900px) {
+            body {
+                padding: 18px;
+            }
+            table {
+                display: block;
+                overflow-x: auto;
+            }
+            h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Policy Change Log</h1>
+    <div class="subtitle">
+        Track changes made through the safe policy editor, including changed fields, old values, new values, and backup file references.
+    </div>
+
+    <div class="button-row">
+        <a class="button" href="/governance-hub">Governance Hub</a>
+        <a class="button secondary" href="/policy-editor">Policy Editor</a>
+        <a class="button secondary" href="/policy-dashboard">Policy Dashboard</a>
+        <a class="button secondary" href="/policy-simulator">Policy Simulator</a>
+        <button class="secondary" onclick="loadChanges()">Refresh</button>
+    </div>
+
+    <div class="card">
+        <div class="metric-label">Total Policy Changes</div>
+        <div id="changeCount" class="metric-value">0</div>
+    </div>
+
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Changed By</th>
+                    <th>Changed Fields</th>
+                    <th>Old Values</th>
+                    <th>New Values</th>
+                    <th>Backup</th>
+                </tr>
+            </thead>
+            <tbody id="changeTable">
+                <tr><td colspan="6">Loading changes...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Raw Change Log JSON</h2>
+        <pre id="rawJson">{}</pre>
+    </div>
+</div>
+
+<script>
+function fieldPills(fields) {
+    if (!fields || fields.length === 0) {
+        return '<span class="pill">No value changes detected</span>';
+    }
+
+    return fields.map(f => `<span class="pill changed">${f}</span>`).join("");
+}
+
+async function loadChanges() {
+    const response = await fetch("/policy-change-log-data");
+    const data = await response.json();
+    const changes = data.changes || [];
+
+    document.getElementById("changeCount").textContent = changes.length;
+    document.getElementById("rawJson").textContent = JSON.stringify(data, null, 2);
+
+    const table = document.getElementById("changeTable");
+
+    if (changes.length === 0) {
+        table.innerHTML = '<tr><td colspan="6">No policy changes recorded yet. Save a change from the Policy Editor.</td></tr>';
+        return;
+    }
+
+    table.innerHTML = changes.map(change => `
+        <tr>
+            <td>
+                ${new Date(change.timestamp).toLocaleString()}
+                <div class="small">${change.change_id}</div>
+            </td>
+            <td>${change.changed_by}</td>
+            <td>${fieldPills(change.changed_fields)}</td>
+            <td><pre>${JSON.stringify(change.old_values, null, 2)}</pre></td>
+            <td><pre>${JSON.stringify(change.new_values, null, 2)}</pre></td>
+            <td class="small">${change.backup_path}</td>
+        </tr>
+    `).join("");
+}
+
+loadChanges();
 </script>
 </body>
 </html>

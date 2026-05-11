@@ -37,6 +37,7 @@ business_rules:
   - self-harm instructions
   - weapon construction
   - insurance advice
+  - crypto advice
   blocked_competitors:
   - CompetitorOne
   - CompetitorTwo

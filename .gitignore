@@ -14,3 +14,6 @@ data/
 
 # Logs
 *.log
+
+# Generated policy backups
+policies/backups/
