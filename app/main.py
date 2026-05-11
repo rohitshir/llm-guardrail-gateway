@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 
@@ -1983,6 +1983,329 @@ async function loadRiskDashboard() {
 }
 
 loadRiskDashboard();
+</script>
+</body>
+</html>
+    """
+
+
+@app.get("/review-queue-data")
+async def review_queue_data():
+    events = audit_logger.review_queue()
+    return {
+        "count": len(events),
+        "events": events
+    }
+
+
+@app.post("/review-events/{event_id}")
+async def review_event(event_id: str, payload: dict = Body(...)):
+    review_status = payload.get("review_status", "reviewed")
+    review_note = payload.get("review_note", "")
+
+    try:
+        updated_event = audit_logger.update_review_status(
+            event_id=event_id,
+            review_status=review_status,
+            review_note=review_note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return updated_event
+
+
+@app.get("/review-queue", response_class=HTMLResponse)
+async def review_queue():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Human Review Queue - LLM Guardrail Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 36px;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 34px;
+        }
+        .subtitle {
+            color: #6e6e73;
+            font-size: 16px;
+            margin-bottom: 22px;
+        }
+        .button-row {
+            margin: 18px 0 26px 0;
+        }
+        a.button, button {
+            display: inline-block;
+            text-decoration: none;
+            background: #0071e3;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin: 6px 8px 6px 0;
+            border: none;
+            cursor: pointer;
+        }
+        a.secondary, button.secondary {
+            background: #e8e8ed;
+            color: #1d1d1f;
+        }
+        button.danger {
+            background: #b3261e;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .card {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+            margin-bottom: 18px;
+        }
+        .metric-label {
+            color: #6e6e73;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .metric-value {
+            font-size: 34px;
+            font-weight: 700;
+        }
+        .critical {
+            color: #b3261e;
+        }
+        .high {
+            color: #b65c00;
+        }
+        .pending {
+            color: #8a5a00;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 18px;
+            overflow: hidden;
+        }
+        th {
+            text-align: left;
+            background: #f0f0f3;
+            padding: 14px;
+            font-size: 13px;
+            color: #555;
+        }
+        td {
+            padding: 14px;
+            border-top: 1px solid #ececf0;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        .pill {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .pill.low {
+            background: #e8f7ee;
+            color: #137333;
+        }
+        .pill.medium {
+            background: #fff4df;
+            color: #8a5a00;
+        }
+        .pill.high {
+            background: #fff0e5;
+            color: #b65c00;
+        }
+        .pill.critical {
+            background: #fdeaea;
+            color: #b3261e;
+        }
+        .pill.status {
+            background: #e8e8ed;
+            color: #555;
+        }
+        textarea {
+            width: 100%;
+            min-height: 70px;
+            border-radius: 12px;
+            border: 1px solid #d2d2d7;
+            padding: 10px;
+            font-size: 13px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        .small {
+            color: #6e6e73;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        @media (max-width: 900px) {
+            body {
+                padding: 18px;
+            }
+            .cards {
+                grid-template-columns: 1fr;
+            }
+            table {
+                display: block;
+                overflow-x: auto;
+            }
+            h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Human Review Queue</h1>
+    <div class="subtitle">
+        Review high-risk, blocked, and fallback guardrail events that may require human attention.
+    </div>
+
+    <div class="button-row">
+        <a class="button" href="/">Back to Demo UI</a>
+        <a class="button secondary" href="/risk-dashboard">Risk Dashboard</a>
+        <a class="button secondary" href="/audit-report">Audit Report</a>
+        <a class="button secondary" href="/scenario-dashboard">Scenario Dashboard</a>
+        <button class="secondary" onclick="loadReviewQueue()">Refresh Queue</button>
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <div class="metric-label">Pending Review Items</div>
+            <div id="pendingCount" class="metric-value pending">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">High Risk</div>
+            <div id="highCount" class="metric-value high">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Critical Risk</div>
+            <div id="criticalCount" class="metric-value critical">0</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Risk</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                    <th>Violations</th>
+                    <th>Review Note</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="reviewTable">
+                <tr><td colspan="6">Loading review queue...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function riskPill(level, score) {
+    return `<span class="pill ${level}">${level.toUpperCase()} - ${score}</span>`;
+}
+
+function statusPill(status) {
+    return `<span class="pill status">${status.toUpperCase()}</span>`;
+}
+
+async function updateReview(eventId, status) {
+    const noteEl = document.getElementById(`note-${eventId}`);
+    const note = noteEl ? noteEl.value : "";
+
+    const response = await fetch(`/review-events/${eventId}`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            review_status: status,
+            review_note: note
+        })
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        alert("Review update failed: " + error);
+        return;
+    }
+
+    await loadReviewQueue();
+}
+
+async function loadReviewQueue() {
+    const response = await fetch("/review-queue-data");
+    const data = await response.json();
+    const events = data.events || [];
+
+    document.getElementById("pendingCount").textContent = events.length;
+    document.getElementById("highCount").textContent = events.filter(e => e.risk_level === "high").length;
+    document.getElementById("criticalCount").textContent = events.filter(e => e.risk_level === "critical").length;
+
+    const table = document.getElementById("reviewTable");
+
+    if (events.length === 0) {
+        table.innerHTML = '<tr><td colspan="6">No pending review items. Run scenario tests to generate high-risk events.</td></tr>';
+        return;
+    }
+
+    const sorted = [...events].sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0));
+
+    table.innerHTML = sorted.map(event => {
+        const violations = event.violations && event.violations.length > 0
+            ? event.violations.map(v => `${v.code}: ${v.message}`).join("<br>")
+            : "None";
+
+        return `
+            <tr>
+                <td>${riskPill(event.risk_level, event.risk_score)}</td>
+                <td>
+                    ${statusPill(event.status)}
+                    <div class="small">Attempts: ${event.attempts}</div>
+                </td>
+                <td>
+                    ${new Date(event.timestamp).toLocaleString()}
+                    <div class="small">${event.event_id}</div>
+                    <div class="small">Prompt hash: ${event.prompt_hash}</div>
+                </td>
+                <td>${violations}</td>
+                <td>
+                    <textarea id="note-${event.event_id}" placeholder="Add review note..."></textarea>
+                </td>
+                <td>
+                    <button onclick="updateReview('${event.event_id}', 'reviewed')">Mark Reviewed</button>
+                    <button class="danger" onclick="updateReview('${event.event_id}', 'needs_follow_up')">Needs Follow-up</button>
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+loadReviewQueue();
 </script>
 </body>
 </html>

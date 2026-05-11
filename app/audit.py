@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from uuid import uuid4
+
 from .risk import enrich_event_with_risk
 
 
@@ -14,10 +15,11 @@ class AuditLogger:
     """
     Educational SQLite-backed audit logger.
 
-    Design choice:
+    Design choices:
     - Store a SHA-256 hash of the prompt instead of the raw prompt.
     - Store validation decisions, violations, status, timestamps, and attempts.
     - Persist records across server restarts.
+    - Support human review status for high-risk governance workflow.
     """
 
     def __init__(self):
@@ -49,6 +51,29 @@ class AuditLogger:
             )
             conn.commit()
 
+        self._ensure_review_columns()
+
+    def _ensure_review_columns(self):
+        """
+        Adds review columns to existing local SQLite database if they do not exist.
+        This keeps the project backwards-compatible with older audit_events.db files.
+        """
+        with self._connect() as conn:
+            existing_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(audit_events)").fetchall()
+            }
+
+            if "review_status" not in existing_columns:
+                conn.execute("ALTER TABLE audit_events ADD COLUMN review_status TEXT DEFAULT 'pending'")
+
+            if "review_note" not in existing_columns:
+                conn.execute("ALTER TABLE audit_events ADD COLUMN review_note TEXT DEFAULT ''")
+
+            if "reviewed_at" not in existing_columns:
+                conn.execute("ALTER TABLE audit_events ADD COLUMN reviewed_at TEXT DEFAULT ''")
+
+            conn.commit()
+
     def prompt_hash(self, text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -73,6 +98,9 @@ class AuditLogger:
                 for v in violations
             ],
             "attempts": attempts,
+            "review_status": "pending",
+            "review_note": "",
+            "reviewed_at": "",
         }
 
         with self._connect() as conn:
@@ -86,9 +114,12 @@ class AuditLogger:
                     policy_id,
                     prompt_hash,
                     violations_json,
-                    attempts
+                    attempts,
+                    review_status,
+                    review_note,
+                    reviewed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event["event_id"],
@@ -99,6 +130,9 @@ class AuditLogger:
                     event["prompt_hash"],
                     json.dumps(event["violations"]),
                     event["attempts"],
+                    event["review_status"],
+                    event["review_note"],
+                    event["reviewed_at"],
                 ),
             )
             conn.commit()
@@ -117,7 +151,10 @@ class AuditLogger:
                     policy_id,
                     prompt_hash,
                     violations_json,
-                    attempts
+                    attempts,
+                    COALESCE(review_status, 'pending'),
+                    COALESCE(review_note, ''),
+                    COALESCE(reviewed_at, '')
                 FROM audit_events
                 ORDER BY timestamp DESC
                 LIMIT 100
@@ -136,10 +173,68 @@ class AuditLogger:
                     "prompt_hash": row[5],
                     "violations": json.loads(row[6]),
                     "attempts": row[7],
+                    "review_status": row[8],
+                    "review_note": row[9],
+                    "reviewed_at": row[10],
                 }
             )
 
         return [enrich_event_with_risk(event) for event in events]
+
+    def update_review_status(
+        self,
+        event_id: str,
+        review_status: str,
+        review_note: str = "",
+    ) -> Dict[str, Any]:
+        allowed_statuses = {"pending", "reviewed", "needs_follow_up"}
+
+        if review_status not in allowed_statuses:
+            raise ValueError(
+                "Invalid review_status. Use pending, reviewed, or needs_follow_up."
+            )
+
+        reviewed_at = datetime.now(timezone.utc).isoformat()
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE audit_events
+                SET review_status = ?,
+                    review_note = ?,
+                    reviewed_at = ?
+                WHERE event_id = ?
+                """,
+                (review_status, review_note, reviewed_at, event_id),
+            )
+            conn.commit()
+
+        events = [event for event in self.list_events() if event["event_id"] == event_id]
+
+        if not events:
+            raise ValueError("Event not found.")
+
+        return events[0]
+
+    def review_queue(self) -> List[Dict[str, Any]]:
+        """
+        Return events that should be reviewed.
+        For this educational project, high/critical risks and fallback/blocked events are review candidates.
+        """
+        events = self.list_events()
+
+        queue = []
+        for event in events:
+            if event.get("review_status") != "pending":
+                continue
+
+            if (
+                event.get("risk_level") in {"high", "critical"}
+                or event.get("status") in {"blocked", "fallback"}
+            ):
+                queue.append(event)
+
+        return queue
 
 
 audit_logger = AuditLogger()
