@@ -1734,3 +1734,256 @@ loadReport();
 </body>
 </html>
     """
+
+
+@app.get("/risk-dashboard", response_class=HTMLResponse)
+async def risk_dashboard():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Risk Dashboard - LLM Guardrail Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 36px;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1150px;
+            margin: auto;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 34px;
+        }
+        .subtitle {
+            color: #6e6e73;
+            font-size: 16px;
+            margin-bottom: 22px;
+        }
+        .button-row {
+            margin: 18px 0 26px 0;
+        }
+        a.button {
+            display: inline-block;
+            text-decoration: none;
+            background: #0071e3;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin: 6px 8px 6px 0;
+        }
+        a.secondary {
+            background: #e8e8ed;
+            color: #1d1d1f;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .card {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+            margin-bottom: 18px;
+        }
+        .metric-label {
+            color: #6e6e73;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .metric-value {
+            font-size: 34px;
+            font-weight: 700;
+        }
+        .low {
+            color: #137333;
+        }
+        .medium {
+            color: #8a5a00;
+        }
+        .high {
+            color: #b65c00;
+        }
+        .critical {
+            color: #b3261e;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 18px;
+            overflow: hidden;
+        }
+        th {
+            text-align: left;
+            background: #f0f0f3;
+            padding: 14px;
+            font-size: 13px;
+            color: #555;
+        }
+        td {
+            padding: 14px;
+            border-top: 1px solid #ececf0;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        .pill {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .pill.low {
+            background: #e8f7ee;
+            color: #137333;
+        }
+        .pill.medium {
+            background: #fff4df;
+            color: #8a5a00;
+        }
+        .pill.high {
+            background: #fff0e5;
+            color: #b65c00;
+        }
+        .pill.critical {
+            background: #fdeaea;
+            color: #b3261e;
+        }
+        .small {
+            color: #6e6e73;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        @media (max-width: 900px) {
+            body {
+                padding: 18px;
+            }
+            .cards {
+                grid-template-columns: 1fr;
+            }
+            table {
+                display: block;
+                overflow-x: auto;
+            }
+            h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Risk Dashboard</h1>
+    <div class="subtitle">
+        Prioritize guardrail events using a simple explainable risk scoring model.
+    </div>
+
+    <div class="button-row">
+        <a class="button" href="/">Back to Demo UI</a>
+        <a class="button secondary" href="/policy-dashboard">Policy Dashboard</a>
+        <a class="button secondary" href="/scenario-dashboard">Scenario Dashboard</a>
+        <a class="button secondary" href="/audit-report">Audit Report</a>
+        <a class="button secondary" href="/audit-dashboard">Audit Dashboard</a>
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <div class="metric-label">Average Risk Score</div>
+            <div id="avgRisk" class="metric-value">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Low Risk</div>
+            <div id="lowRisk" class="metric-value low">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">High Risk</div>
+            <div id="highRisk" class="metric-value high">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Critical Risk</div>
+            <div id="criticalRisk" class="metric-value critical">0</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Highest Risk Events</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Risk</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                    <th>Attempts</th>
+                    <th>Violations</th>
+                    <th>Prompt Hash</th>
+                </tr>
+            </thead>
+            <tbody id="riskTable">
+                <tr><td colspan="6">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function riskPill(level, score) {
+    return `<span class="pill ${level}">${level.toUpperCase()} - ${score}</span>`;
+}
+
+async function loadRiskDashboard() {
+    const response = await fetch("/audit-events");
+    const data = await response.json();
+    const events = data.events || [];
+
+    if (events.length === 0) {
+        document.getElementById("riskTable").innerHTML = '<tr><td colspan="6">No audit events yet.</td></tr>';
+        return;
+    }
+
+    const avg = Math.round(events.reduce((sum, e) => sum + (e.risk_score || 0), 0) / events.length);
+    const low = events.filter(e => e.risk_level === "low").length;
+    const high = events.filter(e => e.risk_level === "high").length;
+    const critical = events.filter(e => e.risk_level === "critical").length;
+
+    document.getElementById("avgRisk").textContent = avg;
+    document.getElementById("lowRisk").textContent = low;
+    document.getElementById("highRisk").textContent = high;
+    document.getElementById("criticalRisk").textContent = critical;
+
+    const sorted = [...events].sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0)).slice(0, 15);
+
+    document.getElementById("riskTable").innerHTML = sorted.map(event => {
+        const violations = event.violations && event.violations.length > 0
+            ? event.violations.map(v => `${v.code}: ${v.message}`).join("<br>")
+            : "None";
+
+        return `
+            <tr>
+                <td>${riskPill(event.risk_level, event.risk_score)}</td>
+                <td>${event.status}</td>
+                <td>
+                    ${new Date(event.timestamp).toLocaleString()}
+                    <div class="small">${event.event_id}</div>
+                </td>
+                <td>${event.attempts}</td>
+                <td>${violations}</td>
+                <td class="small">${event.prompt_hash}</td>
+            </tr>
+        `;
+    }).join("");
+}
+
+loadRiskDashboard();
+</script>
+</body>
+</html>
+    """

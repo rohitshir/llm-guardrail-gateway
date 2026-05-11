@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from uuid import uuid4
+from .risk import enrich_event_with_risk
 
 
 class AuditLogger:
@@ -102,7 +103,7 @@ class AuditLogger:
             )
             conn.commit()
 
-        return event
+        return enrich_event_with_risk(event)
 
     def list_events(self) -> List[Dict[str, Any]]:
         with self._connect() as conn:
@@ -138,7 +139,7 @@ class AuditLogger:
                 }
             )
 
-        return events
+        return [enrich_event_with_risk(event) for event in events]
 
 
 audit_logger = AuditLogger()
