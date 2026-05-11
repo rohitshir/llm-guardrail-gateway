@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import yaml
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
@@ -2538,6 +2539,14 @@ async def governance_hub():
             </div>
         </a>
 
+
+        <a class="nav-card" href="/policy-editor">
+            <div class="nav-title">Policy Editor</div>
+            <div class="nav-desc">
+                Safely update selected YAML policy settings through a controlled form.
+            </div>
+        </a>
+
         <a class="nav-card" href="/scenario-dashboard">
             <div class="nav-title">Scenario Testing</div>
             <div class="nav-desc">
@@ -2977,6 +2986,354 @@ async function simulate() {
         </tr>
     `).join("");
 }
+</script>
+</body>
+</html>
+    """
+
+
+@app.post("/policy-settings")
+async def update_policy_settings(payload: dict = Body(...)):
+    """
+    Controlled policy editor endpoint.
+
+    This updates only selected safe fields instead of allowing raw YAML editing.
+    A backup copy of the existing policy is created before saving changes.
+    """
+    with POLICY_PATH.open("r", encoding="utf-8") as f:
+        policy_data = yaml.safe_load(f)
+
+    backup_dir = POLICY_PATH.parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"default_policy_backup_{timestamp}.yaml"
+
+    with backup_path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(policy_data, f, sort_keys=False)
+
+    blocked_topics = payload.get("blocked_topics", [])
+    blocked_competitors = payload.get("blocked_competitors", [])
+
+    if not isinstance(blocked_topics, list):
+        raise HTTPException(status_code=400, detail="blocked_topics must be a list")
+
+    if not isinstance(blocked_competitors, list):
+        raise HTTPException(status_code=400, detail="blocked_competitors must be a list")
+
+    policy_data.setdefault("business_rules", {})
+    policy_data.setdefault("output_guardrails", {})
+    policy_data.setdefault("retry", {})
+
+    policy_data["business_rules"]["blocked_topics"] = [
+        item.strip() for item in blocked_topics if item.strip()
+    ]
+
+    policy_data["business_rules"]["blocked_competitors"] = [
+        item.strip() for item in blocked_competitors if item.strip()
+    ]
+
+    policy_data["output_guardrails"]["require_citations"] = bool(
+        payload.get("require_citations", True)
+    )
+
+    policy_data["retry"]["enabled"] = bool(
+        payload.get("retry_enabled", True)
+    )
+
+    try:
+        max_attempts = int(payload.get("max_attempts", 1))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="max_attempts must be a number")
+
+    if max_attempts < 0 or max_attempts > 5:
+        raise HTTPException(
+            status_code=400,
+            detail="max_attempts must be between 0 and 5"
+        )
+
+    policy_data["retry"]["max_attempts"] = max_attempts
+
+    with POLICY_PATH.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(policy_data, f, sort_keys=False)
+
+    return {
+        "status": "saved",
+        "backup_created": str(backup_path),
+        "policy": policy_data
+    }
+
+
+@app.get("/policy-editor", response_class=HTMLResponse)
+async def policy_editor():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Policy Editor - LLM Guardrail Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 36px;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1050px;
+            margin: auto;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 36px;
+        }
+        h2 {
+            margin-top: 0;
+            font-size: 22px;
+        }
+        .subtitle {
+            color: #6e6e73;
+            font-size: 16px;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+        .button-row {
+            margin: 18px 0 26px 0;
+        }
+        a.button, button {
+            display: inline-block;
+            text-decoration: none;
+            background: #0071e3;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin: 6px 8px 6px 0;
+            border: none;
+            cursor: pointer;
+        }
+        a.secondary, button.secondary {
+            background: #e8e8ed;
+            color: #1d1d1f;
+        }
+        .card {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+            margin-bottom: 22px;
+        }
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        textarea {
+            width: 100%;
+            min-height: 130px;
+            border-radius: 16px;
+            border: 1px solid #d2d2d7;
+            padding: 14px;
+            font-size: 14px;
+            box-sizing: border-box;
+            resize: vertical;
+            margin-bottom: 18px;
+        }
+        input[type="number"] {
+            width: 100%;
+            border-radius: 14px;
+            border: 1px solid #d2d2d7;
+            padding: 12px;
+            font-size: 15px;
+            box-sizing: border-box;
+            margin-bottom: 18px;
+        }
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 12px 0 18px 0;
+        }
+        .note {
+            background: #fff4df;
+            color: #6b4b00;
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            line-height: 1.45;
+        }
+        .success {
+            background: #e8f7ee;
+            color: #137333;
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            display: none;
+        }
+        .error {
+            background: #fdeaea;
+            color: #b3261e;
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            display: none;
+        }
+        pre {
+            background: #1d1d1f;
+            color: #f5f5f7;
+            padding: 18px;
+            border-radius: 14px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 18px;
+        }
+        @media (max-width: 850px) {
+            body {
+                padding: 18px;
+            }
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Safe Policy Editor</h1>
+    <div class="subtitle">
+        Update selected guardrail policy settings without editing raw YAML directly.
+        The app creates a backup of the previous policy before saving changes.
+    </div>
+
+    <div class="button-row">
+        <a class="button" href="/governance-hub">Governance Hub</a>
+        <a class="button secondary" href="/policy-dashboard">Policy Dashboard</a>
+        <a class="button secondary" href="/policy-simulator">Policy Simulator</a>
+        <a class="button secondary" href="/scenario-dashboard">Scenario Testing</a>
+    </div>
+
+    <div class="card">
+        <div class="note">
+            Enter one item per line. This editor intentionally updates only selected fields:
+            blocked topics, blocked competitors, citation requirement, retry setting, and retry attempts.
+        </div>
+
+        <div id="successBox" class="success"></div>
+        <div id="errorBox" class="error"></div>
+
+        <div class="grid">
+            <div>
+                <label for="blockedTopics">Blocked Topics</label>
+                <textarea id="blockedTopics"></textarea>
+            </div>
+            <div>
+                <label for="blockedCompetitors">Blocked Competitors</label>
+                <textarea id="blockedCompetitors"></textarea>
+            </div>
+        </div>
+
+        <div class="checkbox-row">
+            <input type="checkbox" id="requireCitations">
+            <label for="requireCitations" style="margin-bottom:0;">Require citations in model response</label>
+        </div>
+
+        <div class="checkbox-row">
+            <input type="checkbox" id="retryEnabled">
+            <label for="retryEnabled" style="margin-bottom:0;">Enable retry when output validation fails</label>
+        </div>
+
+        <label for="maxAttempts">Max Retry Attempts</label>
+        <input type="number" id="maxAttempts" min="0" max="5">
+
+        <button onclick="savePolicy()">Save Policy</button>
+        <button class="secondary" onclick="loadPolicy()">Reload Policy</button>
+    </div>
+
+    <div class="card">
+        <h2>Current Policy Snapshot</h2>
+        <pre id="policySnapshot">{}</pre>
+    </div>
+</div>
+
+<script>
+function linesToList(text) {
+    return text
+        .split("\\n")
+        .map(x => x.trim())
+        .filter(Boolean);
+}
+
+function listToLines(items) {
+    return (items || []).join("\\n");
+}
+
+function showSuccess(message) {
+    const box = document.getElementById("successBox");
+    box.style.display = "block";
+    box.textContent = message;
+    document.getElementById("errorBox").style.display = "none";
+}
+
+function showError(message) {
+    const box = document.getElementById("errorBox");
+    box.style.display = "block";
+    box.textContent = message;
+    document.getElementById("successBox").style.display = "none";
+}
+
+async function loadPolicy() {
+    const response = await fetch("/policy");
+    const policy = await response.json();
+
+    document.getElementById("blockedTopics").value = listToLines(policy.business_rules?.blocked_topics);
+    document.getElementById("blockedCompetitors").value = listToLines(policy.business_rules?.blocked_competitors);
+    document.getElementById("requireCitations").checked = Boolean(policy.output_guardrails?.require_citations);
+    document.getElementById("retryEnabled").checked = Boolean(policy.retry?.enabled);
+    document.getElementById("maxAttempts").value = policy.retry?.max_attempts ?? 1;
+
+    document.getElementById("policySnapshot").textContent = JSON.stringify(policy, null, 2);
+}
+
+async function savePolicy() {
+    const payload = {
+        blocked_topics: linesToList(document.getElementById("blockedTopics").value),
+        blocked_competitors: linesToList(document.getElementById("blockedCompetitors").value),
+        require_citations: document.getElementById("requireCitations").checked,
+        retry_enabled: document.getElementById("retryEnabled").checked,
+        max_attempts: Number(document.getElementById("maxAttempts").value)
+    };
+
+    const response = await fetch("/policy-settings", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        showError(data.detail || "Policy save failed.");
+        return;
+    }
+
+    document.getElementById("policySnapshot").textContent = JSON.stringify(data.policy, null, 2);
+    showSuccess("Policy saved successfully. Backup created before update.");
+}
+
+loadPolicy();
 </script>
 </body>
 </html>

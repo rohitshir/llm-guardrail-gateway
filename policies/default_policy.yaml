@@ -1,53 +1,57 @@
 policy_id: default-enterprise-policy
 version: 1.0
-
 fallback:
-  message: "I can’t process this request because it violates the configured safety or compliance policy."
+  message: "I can\u2019t process this request because it violates the configured safety\
+    \ or compliance policy."
   json:
-    answer: "I can’t process this request because it violates the configured safety or compliance policy."
+    answer: "I can\u2019t process this request because it violates the configured\
+      \ safety or compliance policy."
     citations: []
-    confidence: "low"
-    next_action: "Please revise the request without sensitive, unsafe, or restricted content."
-
+    confidence: low
+    next_action: Please revise the request without sensitive, unsafe, or restricted
+      content.
 input_guardrails:
   block_prompt_injection: true
   block_jailbreaks: true
   block_pii:
     enabled: true
     entities:
-      - credit_card
-      - email
-      - phone
-      - canadian_sin
-      - us_ssn
+    - credit_card
+    - email
+    - phone
+    - canadian_sin
+    - us_ssn
   max_input_chars: 12000
-
 output_guardrails:
   require_json: true
   schema_name: support_answer
   block_toxic_content: true
   enforce_on_topic: true
   require_citations: true
-
 business_rules:
   blocked_topics:
-    - medical advice
-    - legal advice
-    - investment advice
-    - competitor comparison
-    - self-harm instructions
-    - weapon construction
+  - medical advice
+  - legal advice
+  - investment advice
+  - competitor comparison
+  - self-harm instructions
+  - weapon construction
+  - insurance advice
   blocked_competitors:
-    - CompetitorOne
-    - CompetitorTwo
+  - CompetitorOne
+  - CompetitorTwo
   required_disclaimer_topics:
-    medical advice: "This system cannot provide medical advice. Please consult a qualified healthcare professional."
-    legal advice: "This system cannot provide legal advice. Please consult a qualified legal professional."
-
+    medical advice: This system cannot provide medical advice. Please consult a qualified
+      healthcare professional.
+    legal advice: This system cannot provide legal advice. Please consult a qualified
+      legal professional.
 retry:
   enabled: true
   max_attempts: 1
-  correction_prompt: |
-    Your previous response failed validation.
+  correction_prompt: 'Your previous response failed validation.
+
     Fix only the validation issues listed below.
+
     Return only valid JSON matching the required schema.
+
+    '
