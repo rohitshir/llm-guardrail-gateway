@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
@@ -425,6 +426,259 @@ Mandatory rules:
 5. Stay on-topic and answer only the user's request.
 6. Include citations in the citations array when factual claims are made.
 """
+
+
+
+
+@app.get("/policy")
+async def get_policy():
+    with POLICY_PATH.open("r", encoding="utf-8") as f:
+        policy_data = yaml.safe_load(f)
+    return policy_data
+
+
+@app.get("/policy-dashboard", response_class=HTMLResponse)
+async def policy_dashboard():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Policy Dashboard - LLM Guardrail Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 36px;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1100px;
+            margin: auto;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 34px;
+        }
+        .subtitle {
+            color: #6e6e73;
+            font-size: 16px;
+            margin-bottom: 24px;
+        }
+        .button-row {
+            margin: 18px 0 26px 0;
+        }
+        a.button {
+            display: inline-block;
+            text-decoration: none;
+            background: #0071e3;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin-right: 8px;
+        }
+        a.secondary {
+            background: #e8e8ed;
+            color: #1d1d1f;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 18px;
+        }
+        .card {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+        }
+        .full {
+            grid-column: 1 / -1;
+        }
+        h2 {
+            margin-top: 0;
+            font-size: 22px;
+        }
+        .label {
+            color: #6e6e73;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+        .value {
+            font-size: 15px;
+            margin-bottom: 14px;
+        }
+        .pill {
+            display: inline-block;
+            background: #e8e8ed;
+            border-radius: 999px;
+            padding: 7px 11px;
+            margin: 4px 4px 4px 0;
+            font-size: 13px;
+        }
+        .danger {
+            background: #fdeaea;
+            color: #b3261e;
+        }
+        .success {
+            background: #e8f7ee;
+            color: #137333;
+        }
+        pre {
+            background: #1d1d1f;
+            color: #f5f5f7;
+            padding: 18px;
+            border-radius: 14px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        @media (max-width: 850px) {
+            body {
+                padding: 18px;
+            }
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            .full {
+                grid-column: auto;
+            }
+            h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Policy Dashboard</h1>
+    <div class="subtitle">
+        View the active YAML-based safety and business rules used by the LLM Guardrail Gateway.
+    </div>
+
+    <div class="button-row">
+        <a class="button" href="/">Back to Demo UI</a>
+        <a class="button secondary" href="/audit-dashboard">Audit Dashboard</a>
+        <a class="button secondary" href="/policy">View Raw Policy JSON</a>
+        <a class="button secondary" href="/docs">Open API Docs</a>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Policy Overview</h2>
+            <div class="label">Policy ID</div>
+            <div id="policyId" class="value">Loading...</div>
+
+            <div class="label">Version</div>
+            <div id="policyVersion" class="value">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Retry Settings</h2>
+            <div class="label">Retry Enabled</div>
+            <div id="retryEnabled" class="value">Loading...</div>
+
+            <div class="label">Max Attempts</div>
+            <div id="retryAttempts" class="value">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Input Guardrails</h2>
+            <div id="inputGuardrails">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Output Guardrails</h2>
+            <div id="outputGuardrails">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Blocked Topics</h2>
+            <div id="blockedTopics">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Blocked Competitors</h2>
+            <div id="blockedCompetitors">Loading...</div>
+        </div>
+
+        <div class="card full">
+            <h2>Fallback Response</h2>
+            <pre id="fallbackJson">{}</pre>
+        </div>
+    </div>
+</div>
+
+<script>
+function booleanPill(value) {
+    return value
+        ? '<span class="pill success">Enabled</span>'
+        : '<span class="pill danger">Disabled</span>';
+}
+
+function renderList(items, targetId, danger=false) {
+    const target = document.getElementById(targetId);
+
+    if (!items || items.length === 0) {
+        target.innerHTML = '<span class="pill">None configured</span>';
+        return;
+    }
+
+    target.innerHTML = items.map(item => {
+        const cls = danger ? "pill danger" : "pill";
+        return `<span class="${cls}">${item}</span>`;
+    }).join("");
+}
+
+function renderObject(obj, targetId) {
+    const target = document.getElementById(targetId);
+    if (!obj) {
+        target.innerHTML = "No settings configured.";
+        return;
+    }
+
+    target.innerHTML = Object.entries(obj).map(([key, value]) => {
+        let renderedValue = value;
+
+        if (typeof value === "boolean") {
+            renderedValue = booleanPill(value);
+        } else if (Array.isArray(value)) {
+            renderedValue = value.map(v => `<span class="pill">${v}</span>`).join("");
+        } else if (typeof value === "object" && value !== null) {
+            renderedValue = `<pre>${JSON.stringify(value, null, 2)}</pre>`;
+        }
+
+        return `
+            <div class="label">${key}</div>
+            <div class="value">${renderedValue}</div>
+        `;
+    }).join("");
+}
+
+async function loadPolicy() {
+    const response = await fetch("/policy");
+    const policy = await response.json();
+
+    document.getElementById("policyId").textContent = policy.policy_id || "Not defined";
+    document.getElementById("policyVersion").textContent = policy.version || "Not defined";
+
+    document.getElementById("retryEnabled").innerHTML = booleanPill(policy.retry?.enabled);
+    document.getElementById("retryAttempts").textContent = policy.retry?.max_attempts ?? "Not defined";
+
+    renderObject(policy.input_guardrails, "inputGuardrails");
+    renderObject(policy.output_guardrails, "outputGuardrails");
+
+    renderList(policy.business_rules?.blocked_topics, "blockedTopics", true);
+    renderList(policy.business_rules?.blocked_competitors, "blockedCompetitors", true);
+
+    document.getElementById("fallbackJson").textContent = JSON.stringify(policy.fallback || {}, null, 2);
+}
+
+loadPolicy();
+</script>
+</body>
+</html>
+    """
 
 
 @app.get("/audit-dashboard", response_class=HTMLResponse)
