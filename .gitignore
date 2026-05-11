@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment secrets
+.env
+
+# Local database
+data/
+
+# System files
+.DS_Store
+
+# Logs
+*.log
