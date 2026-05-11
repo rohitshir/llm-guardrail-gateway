@@ -2557,6 +2557,14 @@ async def governance_hub():
             </div>
         </a>
 
+
+        <a class="nav-card" href="/policy-rollback">
+            <div class="nav-title">Policy Rollback</div>
+            <div class="nav-desc">
+                Restore a previous policy backup and record the rollback in the change log.
+            </div>
+        </a>
+
         <a class="nav-card" href="/scenario-dashboard">
             <div class="nav-title">Scenario Testing</div>
             <div class="nav-desc">
@@ -3578,6 +3586,408 @@ async function loadChanges() {
 }
 
 loadChanges();
+</script>
+</body>
+</html>
+    """
+
+
+@app.get("/policy-backups-data")
+async def policy_backups_data():
+    backup_dir = POLICY_PATH.parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+
+    backups = []
+
+    for backup_file in sorted(backup_dir.glob("*.yaml"), reverse=True):
+        try:
+            with backup_file.open("r", encoding="utf-8") as f:
+                backup_policy = yaml.safe_load(f) or {}
+
+            stat = backup_file.stat()
+
+            backups.append({
+                "filename": backup_file.name,
+                "path": str(backup_file),
+                "size_bytes": stat.st_size,
+                "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "policy_id": backup_policy.get("policy_id", "unknown"),
+                "version": backup_policy.get("version", "unknown"),
+                "blocked_topics": backup_policy.get("business_rules", {}).get("blocked_topics", []),
+                "blocked_competitors": backup_policy.get("business_rules", {}).get("blocked_competitors", []),
+                "require_citations": backup_policy.get("output_guardrails", {}).get("require_citations", None),
+                "retry_enabled": backup_policy.get("retry", {}).get("enabled", None),
+                "max_attempts": backup_policy.get("retry", {}).get("max_attempts", None),
+            })
+        except Exception as exc:
+            backups.append({
+                "filename": backup_file.name,
+                "path": str(backup_file),
+                "error": str(exc)
+            })
+
+    return {
+        "count": len(backups),
+        "backups": backups
+    }
+
+
+@app.post("/restore-policy-backup")
+async def restore_policy_backup(payload: dict = Body(...)):
+    filename = payload.get("filename")
+
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename is required")
+
+    backup_dir = (POLICY_PATH.parent / "backups").resolve()
+    candidate = (backup_dir / filename).resolve()
+
+    if backup_dir not in candidate.parents and candidate != backup_dir:
+        raise HTTPException(status_code=400, detail="Invalid backup path")
+
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Backup file not found")
+
+    with POLICY_PATH.open("r", encoding="utf-8") as f:
+        current_policy = yaml.safe_load(f)
+
+    old_policy_data = copy.deepcopy(current_policy)
+
+    with candidate.open("r", encoding="utf-8") as f:
+        restored_policy = yaml.safe_load(f)
+
+    if not isinstance(restored_policy, dict):
+        raise HTTPException(status_code=400, detail="Backup file does not contain a valid policy")
+
+    # Create a backup of the current policy before restoring the older backup.
+    rollback_backup_dir = POLICY_PATH.parent / "backups"
+    rollback_backup_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    current_backup_path = rollback_backup_dir / f"default_policy_pre_restore_{timestamp}.yaml"
+
+    with current_backup_path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(current_policy, f, sort_keys=False)
+
+    with POLICY_PATH.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(restored_policy, f, sort_keys=False)
+
+    policy_change = policy_change_logger.record_change(
+        old_policy=old_policy_data,
+        new_policy=restored_policy,
+        backup_path=str(current_backup_path),
+        changed_by="local_admin_restore",
+    )
+
+    return {
+        "status": "restored",
+        "restored_from": str(candidate),
+        "current_policy_backup_created": str(current_backup_path),
+        "policy_change": policy_change,
+        "policy": restored_policy
+    }
+
+
+@app.get("/policy-rollback", response_class=HTMLResponse)
+async def policy_rollback():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Policy Rollback - LLM Guardrail Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 36px;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 36px;
+        }
+        h2 {
+            margin-top: 0;
+            font-size: 22px;
+        }
+        .subtitle {
+            color: #6e6e73;
+            font-size: 16px;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+        .button-row {
+            margin: 18px 0 26px 0;
+        }
+        a.button, button {
+            display: inline-block;
+            text-decoration: none;
+            background: #0071e3;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin: 6px 8px 6px 0;
+            border: none;
+            cursor: pointer;
+        }
+        a.secondary, button.secondary {
+            background: #e8e8ed;
+            color: #1d1d1f;
+        }
+        button.danger {
+            background: #b3261e;
+        }
+        .card {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+            margin-bottom: 22px;
+        }
+        .note {
+            background: #fff4df;
+            color: #6b4b00;
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            line-height: 1.45;
+        }
+        .success {
+            background: #e8f7ee;
+            color: #137333;
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            display: none;
+        }
+        .error {
+            background: #fdeaea;
+            color: #b3261e;
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            display: none;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 18px;
+            overflow: hidden;
+        }
+        th {
+            text-align: left;
+            background: #f0f0f3;
+            padding: 14px;
+            font-size: 13px;
+            color: #555;
+        }
+        td {
+            padding: 14px;
+            border-top: 1px solid #ececf0;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        .pill {
+            display: inline-block;
+            background: #e8e8ed;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-weight: 600;
+            font-size: 12px;
+            margin: 3px 3px 3px 0;
+        }
+        .pill.topic {
+            background: #fff4df;
+            color: #8a5a00;
+        }
+        .small {
+            color: #6e6e73;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        pre {
+            background: #1d1d1f;
+            color: #f5f5f7;
+            padding: 14px;
+            border-radius: 14px;
+            overflow-x: auto;
+            font-size: 12px;
+            max-height: 260px;
+        }
+        @media (max-width: 900px) {
+            body {
+                padding: 18px;
+            }
+            table {
+                display: block;
+                overflow-x: auto;
+            }
+            h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Policy Rollback</h1>
+    <div class="subtitle">
+        Restore a previous policy backup if a policy change causes unexpected behavior.
+        The current policy is backed up before rollback, and the rollback is recorded in the policy change log.
+    </div>
+
+    <div class="button-row">
+        <a class="button" href="/governance-hub">Governance Hub</a>
+        <a class="button secondary" href="/policy-editor">Policy Editor</a>
+        <a class="button secondary" href="/policy-change-log">Policy Change Log</a>
+        <a class="button secondary" href="/policy-dashboard">Policy Dashboard</a>
+        <button class="secondary" onclick="loadBackups()">Refresh Backups</button>
+    </div>
+
+    <div class="card">
+        <div class="note">
+            Rollback should be used carefully. This educational prototype creates a backup of the current policy before restoring a selected backup.
+        </div>
+
+        <div id="successBox" class="success"></div>
+        <div id="errorBox" class="error"></div>
+    </div>
+
+    <div class="card">
+        <h2>Available Policy Backups</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Backup</th>
+                    <th>Policy Details</th>
+                    <th>Blocked Topics</th>
+                    <th>Retry / Citations</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="backupTable">
+                <tr><td colspan="5">Loading backups...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Raw Backup Data</h2>
+        <pre id="rawJson">{}</pre>
+    </div>
+</div>
+
+<script>
+function showSuccess(message) {
+    const box = document.getElementById("successBox");
+    box.style.display = "block";
+    box.textContent = message;
+    document.getElementById("errorBox").style.display = "none";
+}
+
+function showError(message) {
+    const box = document.getElementById("errorBox");
+    box.style.display = "block";
+    box.textContent = message;
+    document.getElementById("successBox").style.display = "none";
+}
+
+function topicPills(items) {
+    if (!items || items.length === 0) {
+        return '<span class="pill">None</span>';
+    }
+
+    return items.map(item => `<span class="pill topic">${item}</span>`).join("");
+}
+
+async function restoreBackup(filename) {
+    const confirmed = confirm(`Restore this policy backup?\\n\\n${filename}\\n\\nThe current policy will be backed up first.`);
+
+    if (!confirmed) {
+        return;
+    }
+
+    const response = await fetch("/restore-policy-backup", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            filename
+        })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        showError(data.detail || "Restore failed.");
+        return;
+    }
+
+    showSuccess(`Policy restored from ${filename}. Current policy backup created before restore.`);
+    await loadBackups();
+}
+
+async function loadBackups() {
+    const response = await fetch("/policy-backups-data");
+    const data = await response.json();
+    const backups = data.backups || [];
+
+    document.getElementById("rawJson").textContent = JSON.stringify(data, null, 2);
+
+    const table = document.getElementById("backupTable");
+
+    if (backups.length === 0) {
+        table.innerHTML = '<tr><td colspan="5">No backups found. Save a policy change first.</td></tr>';
+        return;
+    }
+
+    table.innerHTML = backups.map(backup => {
+        if (backup.error) {
+            return `
+                <tr>
+                    <td>${backup.filename}</td>
+                    <td colspan="4">${backup.error}</td>
+                </tr>
+            `;
+        }
+
+        return `
+            <tr>
+                <td>
+                    <strong>${backup.filename}</strong>
+                    <div class="small">${backup.modified_at}</div>
+                    <div class="small">${backup.size_bytes} bytes</div>
+                </td>
+                <td>
+                    <strong>${backup.policy_id}</strong>
+                    <div class="small">Version: ${backup.version}</div>
+                </td>
+                <td>${topicPills(backup.blocked_topics)}</td>
+                <td>
+                    <div>Citations: ${backup.require_citations}</div>
+                    <div>Retry: ${backup.retry_enabled}</div>
+                    <div>Max Attempts: ${backup.max_attempts}</div>
+                </td>
+                <td>
+                    <button class="danger" onclick="restoreBackup('${backup.filename}')">Restore</button>
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+loadBackups();
 </script>
 </body>
 </html>
