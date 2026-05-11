@@ -2310,3 +2310,323 @@ loadReviewQueue();
 </body>
 </html>
     """
+
+
+@app.get("/governance-hub", response_class=HTMLResponse)
+async def governance_hub():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Governance Hub - LLM Guardrail Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 36px;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 38px;
+            letter-spacing: -0.5px;
+        }
+        h2 {
+            margin-top: 0;
+            font-size: 22px;
+        }
+        .subtitle {
+            color: #6e6e73;
+            font-size: 17px;
+            margin-bottom: 26px;
+            max-width: 850px;
+            line-height: 1.5;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .nav-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 18px;
+            margin-bottom: 22px;
+        }
+        .card, .nav-card {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+        }
+        .metric-label {
+            color: #6e6e73;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .metric-value {
+            font-size: 34px;
+            font-weight: 700;
+        }
+        .allowed {
+            color: #137333;
+        }
+        .blocked {
+            color: #b3261e;
+        }
+        .fallback {
+            color: #8a5a00;
+        }
+        .critical {
+            color: #b3261e;
+        }
+        .pending {
+            color: #8a5a00;
+        }
+        .nav-card {
+            text-decoration: none;
+            color: #1d1d1f;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .nav-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 42px rgba(0,0,0,0.12);
+        }
+        .nav-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .nav-desc {
+            color: #6e6e73;
+            line-height: 1.45;
+            font-size: 14px;
+        }
+        .flow {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+            margin-bottom: 22px;
+        }
+        .flow-steps {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }
+        .step {
+            background: #f5f5f7;
+            border-radius: 16px;
+            padding: 16px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .step strong {
+            display: block;
+            margin-bottom: 6px;
+        }
+        .pill {
+            display: inline-block;
+            background: #e8e8ed;
+            border-radius: 999px;
+            padding: 7px 11px;
+            margin: 4px 4px 4px 0;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .pill.green {
+            background: #e8f7ee;
+            color: #137333;
+        }
+        .pill.red {
+            background: #fdeaea;
+            color: #b3261e;
+        }
+        .pill.yellow {
+            background: #fff4df;
+            color: #8a5a00;
+        }
+        .footer-note {
+            color: #6e6e73;
+            font-size: 13px;
+            margin-top: 16px;
+        }
+        @media (max-width: 950px) {
+            body {
+                padding: 18px;
+            }
+            .cards, .nav-grid, .flow-steps {
+                grid-template-columns: 1fr;
+            }
+            h1 {
+                font-size: 30px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>LLM Guardrail Governance Hub</h1>
+    <div class="subtitle">
+        Central view of the educational AI safety middleware prototype: policy controls, scenario testing,
+        audit visibility, risk scoring, and human review workflow.
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <div class="metric-label">Total Events</div>
+            <div id="totalEvents" class="metric-value">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Blocked Events</div>
+            <div id="blockedEvents" class="metric-value blocked">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Critical Risk</div>
+            <div id="criticalEvents" class="metric-value critical">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Pending Reviews</div>
+            <div id="pendingReviews" class="metric-value pending">0</div>
+        </div>
+    </div>
+
+    <div class="flow">
+        <h2>Recommended Demo Flow</h2>
+        <div class="flow-steps">
+            <div class="step">
+                <strong>1. Policy</strong>
+                Show active YAML rules and blocked topics.
+            </div>
+            <div class="step">
+                <strong>2. Scenario Test</strong>
+                Run predefined guardrail tests.
+            </div>
+            <div class="step">
+                <strong>3. Audit</strong>
+                Show logged decisions and violations.
+            </div>
+            <div class="step">
+                <strong>4. Risk</strong>
+                Prioritize high-risk events.
+            </div>
+            <div class="step">
+                <strong>5. Review</strong>
+                Route risky events to human review.
+            </div>
+        </div>
+    </div>
+
+    <div class="nav-grid">
+        <a class="nav-card" href="/">
+            <div class="nav-title">Demo UI</div>
+            <div class="nav-desc">
+                Test prompts against mock or real LLM mode and view guardrail decisions.
+            </div>
+        </a>
+
+        <a class="nav-card" href="/policy-dashboard">
+            <div class="nav-title">Policy Dashboard</div>
+            <div class="nav-desc">
+                View active YAML-based safety and business rules.
+            </div>
+        </a>
+
+        <a class="nav-card" href="/scenario-dashboard">
+            <div class="nav-title">Scenario Testing</div>
+            <div class="nav-desc">
+                Run predefined test cases for prompt injection, PII, retry, and fallback.
+            </div>
+        </a>
+
+        <a class="nav-card" href="/audit-dashboard">
+            <div class="nav-title">Audit Dashboard</div>
+            <div class="nav-desc">
+                View allowed, blocked, and fallback events with validation details.
+            </div>
+        </a>
+
+        <a class="nav-card" href="/audit-report">
+            <div class="nav-title">Audit Report</div>
+            <div class="nav-desc">
+                Review executive-style summary metrics and export JSON reports.
+            </div>
+        </a>
+
+        <a class="nav-card" href="/risk-dashboard">
+            <div class="nav-title">Risk Dashboard</div>
+            <div class="nav-desc">
+                Prioritize events using explainable risk scoring.
+            </div>
+        </a>
+
+        <a class="nav-card" href="/review-queue">
+            <div class="nav-title">Human Review Queue</div>
+            <div class="nav-desc">
+                Triage high-risk, blocked, and fallback events with reviewer notes.
+            </div>
+        </a>
+
+        <a class="nav-card" href="/docs">
+            <div class="nav-title">API Docs</div>
+            <div class="nav-desc">
+                Test API endpoints directly through FastAPI Swagger documentation.
+            </div>
+        </a>
+
+        <a class="nav-card" href="/audit-events">
+            <div class="nav-title">Raw Audit JSON</div>
+            <div class="nav-desc">
+                Inspect raw audit events used by dashboards and reports.
+            </div>
+        </a>
+    </div>
+
+    <div class="flow">
+        <h2>Current Capability Summary</h2>
+        <div id="capabilitySummary">
+            <span class="pill green">Input Guardrails</span>
+            <span class="pill green">Output Guardrails</span>
+            <span class="pill green">YAML Policy Engine</span>
+            <span class="pill green">Mock + OpenAI LLM</span>
+            <span class="pill green">Retry/Fallback</span>
+            <span class="pill green">SQLite Audit Trail</span>
+            <span class="pill green">Risk Scoring</span>
+            <span class="pill green">Human Review</span>
+        </div>
+        <div class="footer-note">
+            Educational prototype only — not a production compliance platform.
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadHubMetrics() {
+    const auditResponse = await fetch("/audit-events");
+    const auditData = await auditResponse.json();
+    const events = auditData.events || [];
+
+    const reviewResponse = await fetch("/review-queue-data");
+    const reviewData = await reviewResponse.json();
+    const reviewEvents = reviewData.events || [];
+
+    const blocked = events.filter(e => e.status === "blocked").length;
+    const critical = events.filter(e => e.risk_level === "critical").length;
+
+    document.getElementById("totalEvents").textContent = events.length;
+    document.getElementById("blockedEvents").textContent = blocked;
+    document.getElementById("criticalEvents").textContent = critical;
+    document.getElementById("pendingReviews").textContent = reviewEvents.length;
+}
+
+loadHubMetrics();
+</script>
+</body>
+</html>
+    """
