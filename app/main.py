@@ -1269,3 +1269,468 @@ resetResults();
 </body>
 </html>
     """
+
+
+@app.get("/audit-report", response_class=HTMLResponse)
+async def audit_report():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audit Report - LLM Guardrail Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 36px;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1150px;
+            margin: auto;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 34px;
+        }
+        h2 {
+            margin-top: 0;
+            font-size: 22px;
+        }
+        .subtitle {
+            color: #6e6e73;
+            font-size: 16px;
+            margin-bottom: 22px;
+        }
+        .button-row {
+            margin: 18px 0 26px 0;
+        }
+        a.button, button {
+            display: inline-block;
+            text-decoration: none;
+            background: #0071e3;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin: 6px 8px 6px 0;
+            border: none;
+            cursor: pointer;
+        }
+        a.secondary, button.secondary {
+            background: #e8e8ed;
+            color: #1d1d1f;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 18px;
+        }
+        .card {
+            background: white;
+            border-radius: 22px;
+            padding: 24px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.08);
+            margin-bottom: 18px;
+        }
+        .metric-label {
+            color: #6e6e73;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .metric-value {
+            font-size: 34px;
+            font-weight: 700;
+        }
+        .allowed {
+            color: #137333;
+        }
+        .blocked {
+            color: #b3261e;
+        }
+        .fallback {
+            color: #8a5a00;
+        }
+        .neutral {
+            color: #1d1d1f;
+        }
+        .summary {
+            line-height: 1.6;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 18px;
+            overflow: hidden;
+        }
+        th {
+            text-align: left;
+            background: #f0f0f3;
+            padding: 14px;
+            font-size: 13px;
+            color: #555;
+        }
+        td {
+            padding: 14px;
+            border-top: 1px solid #ececf0;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        .pill {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .pill.allowed {
+            background: #e8f7ee;
+            color: #137333;
+        }
+        .pill.blocked {
+            background: #fdeaea;
+            color: #b3261e;
+        }
+        .pill.fallback {
+            background: #fff4df;
+            color: #8a5a00;
+        }
+        .pill.neutral {
+            background: #e8e8ed;
+            color: #555;
+        }
+        .small {
+            color: #6e6e73;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        .bar-wrap {
+            background: #e8e8ed;
+            border-radius: 999px;
+            height: 12px;
+            overflow: hidden;
+            margin: 8px 0 16px 0;
+        }
+        .bar {
+            height: 100%;
+            background: #0071e3;
+            width: 0%;
+        }
+        pre {
+            background: #1d1d1f;
+            color: #f5f5f7;
+            padding: 16px;
+            border-radius: 14px;
+            overflow-x: auto;
+            font-size: 12px;
+            max-height: 260px;
+        }
+        @media print {
+            .button-row {
+                display: none;
+            }
+            body {
+                background: white;
+                padding: 20px;
+            }
+            .card {
+                box-shadow: none;
+                border: 1px solid #ddd;
+            }
+        }
+        @media (max-width: 900px) {
+            body {
+                padding: 18px;
+            }
+            .cards, .grid {
+                grid-template-columns: 1fr;
+            }
+            table {
+                display: block;
+                overflow-x: auto;
+            }
+            h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Audit Report</h1>
+    <div class="subtitle">
+        Executive-style summary of LLM guardrail activity, validation failures, retry behavior, and policy enforcement outcomes.
+    </div>
+
+    <div class="button-row">
+        <a class="button" href="/">Back to Demo UI</a>
+        <a class="button secondary" href="/policy-dashboard">Policy Dashboard</a>
+        <a class="button secondary" href="/scenario-dashboard">Scenario Dashboard</a>
+        <a class="button secondary" href="/audit-dashboard">Audit Dashboard</a>
+        <button class="secondary" onclick="downloadReport()">Download Report JSON</button>
+        <button class="secondary" onclick="window.print()">Print Report</button>
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <div class="metric-label">Total Events</div>
+            <div id="totalEvents" class="metric-value neutral">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Allowed</div>
+            <div id="allowedEvents" class="metric-value allowed">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Blocked</div>
+            <div id="blockedEvents" class="metric-value blocked">0</div>
+        </div>
+        <div class="card">
+            <div class="metric-label">Fallback</div>
+            <div id="fallbackEvents" class="metric-value fallback">0</div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Executive Summary</h2>
+            <div id="executiveSummary" class="summary">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Outcome Rates</h2>
+            <div class="metric-label">Allowed Rate</div>
+            <div id="allowedRateText" class="small">0%</div>
+            <div class="bar-wrap"><div id="allowedRateBar" class="bar"></div></div>
+
+            <div class="metric-label">Blocked Rate</div>
+            <div id="blockedRateText" class="small">0%</div>
+            <div class="bar-wrap"><div id="blockedRateBar" class="bar"></div></div>
+
+            <div class="metric-label">Fallback Rate</div>
+            <div id="fallbackRateText" class="small">0%</div>
+            <div class="bar-wrap"><div id="fallbackRateBar" class="bar"></div></div>
+        </div>
+
+        <div class="card">
+            <h2>Most Common Violations</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Violation Code</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody id="violationTable">
+                    <tr><td colspan="2">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Retry Activity</h2>
+            <div id="retrySummary" class="summary">Loading...</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Recent High-Risk Events</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Time</th>
+                    <th>Attempts</th>
+                    <th>Violations</th>
+                    <th>Prompt Hash</th>
+                </tr>
+            </thead>
+            <tbody id="highRiskTable">
+                <tr><td colspan="5">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Generated Report JSON</h2>
+        <pre id="reportJson">{}</pre>
+    </div>
+</div>
+
+<script>
+let latestReport = {};
+
+function pct(value, total) {
+    if (!total) return 0;
+    return Math.round((value / total) * 100);
+}
+
+function statusPill(status) {
+    return `<span class="pill ${status}">${status.toUpperCase()}</span>`;
+}
+
+function setBar(id, percent) {
+    document.getElementById(id).style.width = `${percent}%`;
+}
+
+function countViolations(events) {
+    const counts = {};
+
+    events.forEach(event => {
+        const violations = event.violations || [];
+        violations.forEach(v => {
+            counts[v.code] = (counts[v.code] || 0) + 1;
+        });
+    });
+
+    return counts;
+}
+
+function renderViolationTable(violationCounts) {
+    const table = document.getElementById("violationTable");
+    const entries = Object.entries(violationCounts).sort((a, b) => b[1] - a[1]);
+
+    if (entries.length === 0) {
+        table.innerHTML = '<tr><td colspan="2">No violations recorded.</td></tr>';
+        return;
+    }
+
+    table.innerHTML = entries.map(([code, count]) => `
+        <tr>
+            <td><span class="pill neutral">${code}</span></td>
+            <td>${count}</td>
+        </tr>
+    `).join("");
+}
+
+function renderHighRiskEvents(events) {
+    const table = document.getElementById("highRiskTable");
+
+    const highRisk = events.filter(e =>
+        e.status === "blocked" ||
+        e.status === "fallback" ||
+        (e.violations || []).some(v => v.severity === "critical" || v.severity === "high")
+    ).slice(0, 10);
+
+    if (highRisk.length === 0) {
+        table.innerHTML = '<tr><td colspan="5">No high-risk events found.</td></tr>';
+        return;
+    }
+
+    table.innerHTML = highRisk.map(event => {
+        const violations = event.violations && event.violations.length > 0
+            ? event.violations.map(v => `${v.code}: ${v.message}`).join("<br>")
+            : "None";
+
+        return `
+            <tr>
+                <td>${statusPill(event.status)}</td>
+                <td>
+                    ${new Date(event.timestamp).toLocaleString()}
+                    <div class="small">${event.event_id}</div>
+                </td>
+                <td>${event.attempts}</td>
+                <td>${violations}</td>
+                <td class="small">${event.prompt_hash}</td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function downloadReport() {
+    const blob = new Blob([JSON.stringify(latestReport, null, 2)], {
+        type: "application/json"
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "llm_guardrail_audit_report.json";
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function loadReport() {
+    const response = await fetch("/audit-events");
+    const data = await response.json();
+    const events = data.events || [];
+
+    const total = events.length;
+    const allowed = events.filter(e => e.status === "allowed").length;
+    const blocked = events.filter(e => e.status === "blocked").length;
+    const fallback = events.filter(e => e.status === "fallback").length;
+
+    const allowedRate = pct(allowed, total);
+    const blockedRate = pct(blocked, total);
+    const fallbackRate = pct(fallback, total);
+
+    const retryEvents = events.filter(e => e.attempts > 1).length;
+    const blockedBeforeModel = events.filter(e => e.status === "blocked" && e.attempts === 0).length;
+    const violationCounts = countViolations(events);
+
+    latestReport = {
+        generated_at: new Date().toISOString(),
+        total_events: total,
+        status_counts: {
+            allowed,
+            blocked,
+            fallback
+        },
+        rates: {
+            allowed_rate_percent: allowedRate,
+            blocked_rate_percent: blockedRate,
+            fallback_rate_percent: fallbackRate
+        },
+        retry_events: retryEvents,
+        blocked_before_model: blockedBeforeModel,
+        violation_counts: violationCounts,
+        recent_high_risk_events: events.filter(e => e.status === "blocked" || e.status === "fallback").slice(0, 10)
+    };
+
+    document.getElementById("totalEvents").textContent = total;
+    document.getElementById("allowedEvents").textContent = allowed;
+    document.getElementById("blockedEvents").textContent = blocked;
+    document.getElementById("fallbackEvents").textContent = fallback;
+
+    document.getElementById("allowedRateText").textContent = `${allowedRate}%`;
+    document.getElementById("blockedRateText").textContent = `${blockedRate}%`;
+    document.getElementById("fallbackRateText").textContent = `${fallbackRate}%`;
+
+    setBar("allowedRateBar", allowedRate);
+    setBar("blockedRateBar", blockedRate);
+    setBar("fallbackRateBar", fallbackRate);
+
+    document.getElementById("executiveSummary").innerHTML = `
+        The gateway processed <strong>${total}</strong> audited events.
+        <strong>${allowed}</strong> were allowed,
+        <strong>${blocked}</strong> were blocked before model execution,
+        and <strong>${fallback}</strong> resulted in safe fallback handling.
+        The current blocked-before-model count is <strong>${blockedBeforeModel}</strong>,
+        showing how many unsafe requests were stopped before reaching the LLM.
+    `;
+
+    document.getElementById("retrySummary").innerHTML = `
+        <p><strong>${retryEvents}</strong> events required more than one model attempt.</p>
+        <p>This indicates the output guardrail layer detected invalid or incomplete model responses and triggered retry handling.</p>
+        <p><strong>${fallback}</strong> events still failed after retry and were handled through safe fallback logic.</p>
+    `;
+
+    renderViolationTable(violationCounts);
+    renderHighRiskEvents(events);
+
+    document.getElementById("reportJson").textContent = JSON.stringify(latestReport, null, 2);
+}
+
+loadReport();
+</script>
+</body>
+</html>
+    """
