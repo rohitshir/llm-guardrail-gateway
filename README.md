@@ -137,3 +137,36 @@ output_guardrails:
 - Add rate limiting and abuse detection.
 - Add human-review queue for high-risk blocked attempts.
 - Encrypt policy files and logs at rest.
+
+---
+
+## Project Screenshots
+
+### Governance Hub
+
+![Governance Hub](docs/screenshots/governance-hub.png)
+
+### Policy Dashboard
+
+![Policy Dashboard](docs/screenshots/policy-dashboard.png)
+
+### Policy Simulator
+
+![Policy Simulator](docs/screenshots/policy-simulator.png)
+
+### Scenario Testing Dashboard
+
+![Scenario Testing Dashboard](docs/screenshots/scenario-dashboard.png)
+
+### Audit Report
+
+![Audit Report](docs/screenshots/audit-report.png)
+
+### Risk Dashboard
+
+![Risk Dashboard](docs/screenshots/risk-dashboard.png)
+
+### Human Review Queue
+
+![Human Review Queue](docs/screenshots/review-queue.png)
+
